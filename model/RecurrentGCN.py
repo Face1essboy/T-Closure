@@ -62,18 +62,6 @@ class H_GAT(nn.Module):
 
         return out
 
-
-    def Tensor_fusion(self, real_feature, plan_feature, other_feature):
-        # 分解后，并行提取各模态特征
-        fusion_A = torch.matmul(real_feature, self.Wa)
-        fusion_B = torch.matmul(plan_feature, self.Wb)
-        fusion_C = torch.matmul(other_feature, self.Wc)
-
-        funsion_ABC = fusion_A * fusion_B * fusion_C
-        funsion_ABC = torch.matmul(self.Wf, funsion_ABC.permute(1,0,2)).squeeze() #+ self.bias
-
-        return funsion_ABC
-
     def forward(self, x, edge_index, edge_weight, cat_list):
         #return self.real_GNN(x, edge_index, edge_weight), torch.Tensor([0]).to(DEVICE)
         aux_loss = 0
@@ -85,6 +73,7 @@ class H_GAT(nn.Module):
         real_edge_weight = []
         plan_edge_weight = []
         other_edge_weight = []
+        # split the whole graph into several sub-graphs
         for index in range(len(dst_list)):
             if cat_list[dst_list[index]] == 0 :
                 real_edge_index.append(edge_index[:,index].unsqueeze(-1))
@@ -96,34 +85,33 @@ class H_GAT(nn.Module):
                 other_edge_index.append(edge_index[:,index].unsqueeze(-1))
                 other_edge_weight.append(edge_weight[index])
         
-        # real sub GNN
+        # intra-cat feature aggregate
         if len(real_edge_weight) == 0:
-            real_gnn_output = x#torch.zeros(x.size()).cuda() #.unsqueeze(1)
+            real_gnn_output = x
         else:
             #print('real')
             edge_index = torch.cat(real_edge_index, -1).to(DEVICE)
             edge_weight = torch.LongTensor(real_edge_weight).to(DEVICE)
             row, col = edge_index
-            adj = SparseTensor(row=row, col=col, sparse_sizes=(x.shape[0], x.shape[0]))
-            real_gnn_output = self.real_GNN(x, edge_index, edge_weight)#.unsqueeze(1)
+            real_gnn_output = self.real_GNN(x, edge_index, edge_weight)
         
         if len(plan_edge_weight) == 0:
-            plan_gnn_output = x#torch.zeros(x.size()).cuda() #.unsqueeze(1)
+            plan_gnn_output = x
         else:
             #print('plan')
             edge_index = torch.cat(plan_edge_index, -1).to(DEVICE)
             edge_weight = torch.LongTensor(plan_edge_weight).to(DEVICE)
             row, col = edge_index
             adj = SparseTensor(row=row, col=col, sparse_sizes=(x.shape[0], x.shape[0]))
-            plan_gnn_output = self.plan_GNN(x, edge_index, edge_weight)#.unsqueeze(1)
+            plan_gnn_output = self.plan_GNN(x, edge_index, edge_weight)
 
         if len(other_edge_weight) == 0:
-            other_gnn_output = x#torch.zeros(x.size()).cuda() #.unsqueeze(1)
+            other_gnn_output = x
         else:
             #print('other')
             edge_index = torch.cat(other_edge_index, -1).to(DEVICE)
             edge_weight = torch.LongTensor(other_edge_weight).to(DEVICE)
-            other_gnn_output = self.other_GNN(x, edge_index, edge_weight)#.unsqueeze(1)
+            other_gnn_output = self.other_GNN(x, edge_index, edge_weight)
 
         out1 = self.gated_fusion(real_gnn_output, plan_gnn_output) 
         out2 = self.gated_fusion(real_gnn_output, other_gnn_output)
@@ -132,8 +120,8 @@ class H_GAT(nn.Module):
         all_features = torch.cat([x,out1,out2,out3], -1)
         out = torch.tanh(self.Agg_Linear(all_features))
 
-        
-        # p&r
+        # gated interactions
+        # p&r plan_road and pass_road
         pos_traj_emb = plan_gnn_output
         neg_traj_emb = pos_traj_emb[torch.randperm(pos_traj_emb.size(0))]
 
@@ -142,7 +130,7 @@ class H_GAT(nn.Module):
         aux_loss += -torch.log(pos_exp/(pos_exp+neg_exp))
 
         
-        #p&x
+        #p&x plan_road and extend_road
         pos_traj_emb = plan_gnn_output
         neg_traj_emb = pos_traj_emb[torch.randperm(pos_traj_emb.size(0))]
 
@@ -150,10 +138,11 @@ class H_GAT(nn.Module):
         neg_exp = torch.exp(torch.sigmoid(torch.sum((other_gnn_output)*neg_traj_emb, 1)))
         aux_loss += -torch.log(pos_exp/(pos_exp+neg_exp))
 
-        #r&x
+        #r&x pass_road and extend_road
         pos_traj_emb = real_gnn_output
         neg_traj_emb = pos_traj_emb[torch.randperm(pos_traj_emb.size(0))]
 
+        # get graph-level aux loss
         pos_exp = torch.exp(torch.sigmoid(torch.sum((other_gnn_output)*pos_traj_emb, 1)))
         neg_exp = torch.exp(torch.sigmoid(torch.sum((other_gnn_output)*neg_traj_emb, 1)))
         aux_loss += -torch.log(pos_exp/(pos_exp+neg_exp))
@@ -187,34 +176,28 @@ class GraphConv(MessagePassing):
 
     def forward(self, x, edge_index, edge_weight, size=None):
         prop = self.propagate(edge_index, x=(x, x), edge_weight = edge_weight, size=size)
-
         out = self.lin_l(x) + prop
-        
 
         return prop
 
-    def message(self, x_i, x_j, edge_weight, index, ptr):
-        edge_weight_emb = self.edge_EMB(edge_weight) # edge_num * out_dim
+    def message(self, x_i, x_j, edge_weight, index, ptr): # creat message for each node for passing
+        edge_weight_emb = self.edge_EMB(edge_weight) 
         
-        neighbor_messge = edge_weight_emb*x_j #edge_weight_emb*(x_j+x_i) #torch.cat([edge_weight_emb*x_j, x_i], -1)
+        neighbor_messge = edge_weight_emb*x_j # edge feature * node feature via ham product
         att_score = self.lin_att(torch.cat([x_i, neighbor_messge], -1))
         att_score = F.leaky_relu(att_score, -0.1)
-        att_score = softmax(att_score, index, ptr)
-        #print(att_score.size())
-        final_messge = self.lin_r(neighbor_messge)#self.lin_c(neighbor_messge)
-        #print(final_messge.size())
-
+        att_score = softmax(att_score, index, ptr) # caculate attention score
+        final_messge = self.lin_r(neighbor_messge)
         return final_messge*att_score
-
     
-    def aggregate(self, inputs, index, dim_size=None):
+    def aggregate(self, inputs, index, dim_size=None): # aggregate information for each node
         # The axis along which to index number of nodes.
         node_dim = self.node_dim
         out = torch_scatter.scatter(inputs, index, node_dim, dim_size=dim_size)
 
         return out
 
-class Seq_Encoder_GRU(torch.nn.Module):
+class Seq_Encoder_GRU(torch.nn.Module): # GRU encoder for traffic flow and trajectory feature encoding
     def __init__(self, in_dim, out_dim, layer):
         super(Seq_Encoder_GRU, self).__init__()
         self.layer = layer
@@ -247,77 +230,6 @@ class Seq_Encoder_GRU(torch.nn.Module):
 
             return f_collected
 
-
-class Seq_Encoder_ATT(torch.nn.Module):
-    def __init__(self, dim, output_dim, head_num):
-        super(Seq_Encoder_ATT, self).__init__()
-        self.head_num = head_num
-        self.output_dim = output_dim
-        self.padding_weight = torch.nn.Parameter(torch.FloatTensor(output_dim), requires_grad=True)
-        torch.nn.init.uniform_(self.padding_weight, -1, 1)
-
-        # project linear
-        self.project_linear = nn.Linear(dim, output_dim, bias = True)
-
-        # self-attention encoder
-        self.self_attention_1 = nn.MultiheadAttention(output_dim*head_num, head_num, dropout=0.3, bias=True)
-        self.traj_linear_1 = nn.Linear(output_dim*head_num, output_dim*head_num, bias = True)
-
-        self.self_attention_2 = nn.MultiheadAttention(output_dim*head_num, head_num, dropout=0.3, bias=True)
-        self.traj_linear_2 = nn.Linear(output_dim*head_num, output_dim*head_num, bias = True)
-
-        # positional encoder
-        '''
-        pe = torch.zeros(100, dim)
-        position = torch.arange(0, 100, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, dim, 2).float() * (-math.log(10000.0) / dim))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
-        self.register_buffer('pe', pe)
-        '''
-        # learnable positional encoder
-        self.pe = torch.nn.Parameter(torch.FloatTensor(100, 1, output_dim), requires_grad=True)
-    
-    def add_position(self, traj_f):
-        position_embedding = self.pe[:traj_f.size(0), :]
-        return traj_f + position_embedding
-    
-    def forward(self, traj_f, traj_padding):
-        # perpare padding tensor
-        if traj_padding != None :
-            traj_padding_reshaped = traj_padding.repeat(self.head_num, 1).unsqueeze(1) # (N*head_num)*1*point_sample
-            traj_padding_reshaped = traj_padding_reshaped.repeat(1, traj_padding.size()[1], 1) # (N*head_num)*point_sample*point_sample
-        else:
-            traj_padding_reshaped = None
-
-        traj_f = torch.tanh(self.project_linear(traj_f))
-        traj_f = self.add_position(traj_f)
-        traj_f_reshaped = traj_f.repeat(1, 1, self.head_num)
-        #print(traj_f_reshaped)
-        
-        traj_f_new = self.self_attention_1(query = traj_f_reshaped, key = traj_f_reshaped, value = traj_f_reshaped, attn_mask = None)[0]# + traj_f_reshaped
-        #print(traj_f_new)
-        traj_f_new = self.traj_linear_1(traj_f_new)#+traj_f_reshaped
-        if traj_padding_reshaped == None:
-            return torch.mean(torch.mean(traj_f_new, 0).view(-1, self.head_num, self.output_dim), 1)
-
-        f_reshaped = torch.mean(traj_f_new.view(50,-1,self.head_num, self.output_dim), 2).permute(1,0,2)
-        final_index = (len(traj_padding[0]) - torch.sum(traj_padding, 1) - 1).long()
-        traj_f_list = []
-        for index in range(f_reshaped.size()[0]):
-            if final_index[index] != -1:
-                #traj_f_list.append(f_reshaped[index][final_index[index]])
-                traj_f_list.append(torch.mean(f_reshaped[index][:(final_index[index]+1).long()], 0, keepdim = False))
-            else:
-                #traj_f_list.append(torch.zeros(self.out_dim).cuda())
-                traj_f_list.append(self.padding_weight)
-        f_collected = torch.stack(traj_f_list,0)
-
-
-        return f_collected 
-
-
 class T_Closure(torch.nn.Module):
     def __init__(self, node_dim, out_channel, his_len, layer_num):
         super(T_Closure, self).__init__()
@@ -325,10 +237,6 @@ class T_Closure(torch.nn.Module):
         self.his_len = his_len
         # n layer GNN_LSTM for spatial and temporal modeling
         self.GNN_LSTM = [[H_GAT(in_channels = node_dim, out_channels = node_dim).to(DEVICE), nn.GRU(node_dim,node_dim,1).to(DEVICE), nn.Linear(node_dim, node_dim).to(DEVICE)] for i in range(layer_num)]
-
-        # attention encoder for traj feature
-        #self.Traj_Encoder = Seq_Encoder_ATT(3, 50, 3)
-        #self.uv_Encoder = Seq_Encoder_ATT(3, 50, 3)
 
         # GRU encoder for traj feature
         self.Traj_Encoder = Seq_Encoder_GRU(3, 50, 1)
@@ -372,16 +280,10 @@ class T_Closure(torch.nn.Module):
         self.traj_embs = []
         
 
-    def graph_pooling(self, batch_index, h, graph_aux_sample):
+    def graph_pooling(self, batch_index, h): # select the central node from each graph for sequence modeling
         batch_len = list(batch_index.bincount())
-        
         output = torch.stack([i[0] for i in h.split(batch_len, 0)]) # batch_size*F
-
-        #output = torch.stack([torch.mean(i, 0) for i in h.split(batch_len, 0)]) # batch_size*F
-
-        aux_loss = 0
-
-        return output, aux_loss
+        return output, 0
     
     def GNN_LSTM_block(self, x, edge_index, edge_weight, batch_list, order_list, cat_list, graph_aux_sample_batch):
         graph_aux_loss = 0
@@ -394,20 +296,18 @@ class T_Closure(torch.nn.Module):
             cat = cat_list[step]
             graph_aux_sample = graph_aux_sample_batch[step]
             for i in range(self.layer_num):
-                batch_len = list(batch_list[step].bincount())
+                # spatial modeling via MVH-GNN
                 node_f, aux_loss = self.GNN_LSTM[i][0](node_f, edge, weight, cat.to(DEVICE))
-                #graph_aux_loss += torch.mean(torch.stack([aux_loss[0] for i in aux_loss.split(batch_len, 0)]))
                 graph_aux_loss += torch.mean(aux_loss)
             graph_emb, aux_loss = self.graph_pooling(batch_list[step], node_f, graph_aux_sample)
-            #graph_aux_loss += aux_loss
             GNN_outputs.append((graph_emb).unsqueeze(0))
-            #GNN_outputs.append(graph_emb.unsqueeze(0)+order_emb)
 
         spatial_embeddings = torch.cat(GNN_outputs, 0)
         h, _ = self.GNN_LSTM[0][1](spatial_embeddings)# T*batch_size*32
         
         
         # get random seq
+        # used for sequence level aux loss which generates embedding via random perburtations
         GNN_outputs = [] # T*N*32
         order_list = order_list.permute(1,0)
         seq_list = np.array([i for i in range(len(x))])
@@ -434,7 +334,7 @@ class T_Closure(torch.nn.Module):
         
         return h, spatial_embeddings, graph_aux_loss, rand_h
     
-    def get_aux_task(self, uv_emb,traj_emb):
+    def get_aux_task(self, uv_emb,traj_emb): # get contrastive learning loss for each aux task
         
         pos_traj_emb = traj_emb
         neg_traj_emb = pos_traj_emb[torch.randperm(pos_traj_emb.size(0))]
@@ -445,15 +345,6 @@ class T_Closure(torch.nn.Module):
         aux_loss = -torch.log(pos_exp/(pos_exp+neg_exp))
 
         return torch.mean(aux_loss)
-    
-    def get_uv_traj_emb(self):
-        uv_emb = torch.cat(self.uv_embs, 0)
-        traj_emb = torch.cat(self.traj_embs, 0)
-        return [uv_emb, traj_emb]
-    
-    def clean(self):
-        self.uv_embs = []
-        self.traj_embs = []
 
     def forward(self, batch, Type):
         """
@@ -468,10 +359,8 @@ class T_Closure(torch.nn.Module):
         """
         
         seq_padding = batch[1].to(DEVICE).long()
-        seq_span = batch[4].permute(1,0).to(DEVICE)
         order_type_list = batch[5].to(DEVICE)
         time_steps = len(batch[0].edge_indices)
-        traj_aux_sample_batch = batch[2]
         graph_aux_sample_batch = batch[3]
 
         
@@ -497,7 +386,6 @@ class T_Closure(torch.nn.Module):
             traj_raw_feature = traj_raw_feature.permute(2,0,1) # point_sample*N(batched by snapshot)*6
             
             traj_raw_feature_num = traj_raw_feature[:,:,2:-1] # point_sample*N(batched by snapshot)*5
-            status_emb = self.status_EMB(traj_raw_feature[:,:,-1].long()) # point_sample*N(batched by snapshot)*10
             traj_raw_feature = traj_raw_feature_num #torch.cat([traj_raw_feature_num, status_emb], -1)
             traj_padding = torch.Tensor(batch[0].traj_padding[step]).float().to(DEVICE) # N(batched by snapshot)*point_sample
 
@@ -519,7 +407,6 @@ class T_Closure(torch.nn.Module):
             
 
             # look up the category embedding
-            cat_embedding = self.cat_EMB(features[:,0].long()) # N*node_dim
             static_feature = features[:,31:] # N*7
             cat_list.append(features[:,0].long())
 
@@ -556,8 +443,6 @@ class T_Closure(torch.nn.Module):
         seq_aux_sample = []
 
         for batch in range(GNN_outputs_reshaped.size()[0]):
-            predict_emb.append(LSTM_outputs_reshaped[batch][seq_padding[batch]-1].unsqueeze(0))
-            
             if Type == 'test':
                 predict_emb.append(LSTM_outputs_reshaped[batch][seq_padding[batch]-1].unsqueeze(0))
             else:
