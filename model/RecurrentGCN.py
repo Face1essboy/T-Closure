@@ -34,27 +34,8 @@ class H_GAT(nn.Module):
         self.plan_GNN = GraphConv(in_channels = in_channels, out_channels = out_channels).cuda()
         self.other_GNN = GraphConv(in_channels = in_channels, out_channels = out_channels).cuda()
 
-        # attention agg
-        self.Agg_Encoder = Seq_Encoder_ATT(in_channels, in_channels, 3)
-
-        # tensor fusion agg
-        R, h = 4, out_channels
-        self.Wa = nn.Parameter(torch.Tensor(R, out_channels, h))
-        self.Wb = nn.Parameter(torch.Tensor(R, out_channels, h))
-        self.Wc = nn.Parameter(torch.Tensor(R, out_channels, h))
-        self.Wf = nn.Parameter(torch.Tensor(1, R))
-        self.bias = nn.Parameter(torch.Tensor(1, h))
-
         self.gate_linear = torch.nn.Linear(2*in_channels, out_channels, bias = True)
-
-        # matrix fusion
         self.Agg_Linear = torch.nn.Linear(4*in_channels, out_channels, bias = True)
-        self.x_Linear = torch.nn.Linear(in_channels, out_channels, bias = False)
-        self.Product_Linear_1 = torch.nn.Linear(2*in_channels, out_channels, bias = True)
-        self.Product_Linear_2 = torch.nn.Linear(2*in_channels, out_channels, bias = True)
-        self.Product_Linear_3 = torch.nn.Linear(2*in_channels, out_channels, bias = True)
-
-        self.MI_Linear = torch.nn.Linear(in_channels, out_channels, bias = False)
 
     def gated_fusion(self, A, B):
         gate = torch.sigmoid(self.gate_linear(torch.cat([A,B], -1)))
@@ -231,45 +212,38 @@ class Seq_Encoder_GRU(torch.nn.Module): # GRU encoder for traffic flow and traje
             return f_collected
 
 class T_Closure(torch.nn.Module):
-    def __init__(self, node_dim, out_channel, his_len, layer_num):
+    def __init__(self, node_dim, static_dim, emb_dim, his_len, layer_num, trade):
         super(T_Closure, self).__init__()
         self.layer_num = layer_num
         self.his_len = his_len
+        self.trade = trade
         # n layer GNN_LSTM for spatial and temporal modeling
         self.GNN_LSTM = [[H_GAT(in_channels = node_dim, out_channels = node_dim).to(DEVICE), nn.GRU(node_dim,node_dim,1).to(DEVICE), nn.Linear(node_dim, node_dim).to(DEVICE)] for i in range(layer_num)]
 
         # GRU encoder for traj feature
-        self.Traj_Encoder = Seq_Encoder_GRU(3, 50, 1)
-        self.uv_Encoder = Seq_Encoder_GRU(3,50,1)
+        self.Traj_Encoder = Seq_Encoder_GRU(3, emb_dim, 1)
+        self.uv_Encoder = Seq_Encoder_GRU(3,emb_dim,1)
         
         # Linear for regress and classify
-        self.linear_main_task = torch.nn.Linear(node_dim, out_channel, bias = False)
-        self.traj_project = torch.nn.Linear(5, 10, bias = True)
-        self.linear_order_task = torch.nn.Linear(node_dim, out_channel, bias = False)
+        self.linear_main_task = torch.nn.Linear(node_dim, 1, bias = False)
+        self.linear_order_task = torch.nn.Linear(node_dim, 1, bias = False)
         
         # Init Embeddings
-        self.cat_EMB = nn.Embedding(10, 10)
-        torch.nn.init.uniform_(self.cat_EMB.weight.data)
 
-        self.lane_EMB = nn.Embedding(10, 10)
+        self.lane_EMB = nn.Embedding(10, static_dim)
         torch.nn.init.uniform_(self.lane_EMB.weight.data)
 
-        self.direction_EMB = nn.Embedding(10, 10)
+        self.direction_EMB = nn.Embedding(10, static_dim)
         torch.nn.init.uniform_(self.direction_EMB.weight.data)
 
-        self.fc_EMB = nn.Embedding(10, 10)
+        self.fc_EMB = nn.Embedding(10, static_dim)
         torch.nn.init.uniform_(self.fc_EMB.weight.data)
 
-        self.speed_class_EMB = nn.Embedding(10, 10)
+        self.speed_class_EMB = nn.Embedding(10, static_dim)
         torch.nn.init.uniform_(self.speed_class_EMB.weight.data)
 
-        self.park_EMB = nn.Embedding(10, 10)
+        self.park_EMB = nn.Embedding(10, static_dim)
         torch.nn.init.uniform_(self.park_EMB.weight.data)
-
-        self.status_EMB = nn.Embedding(10, 10)
-        torch.nn.init.uniform_(self.status_EMB.weight.data)
-
-        self.MI_Linear = torch.nn.Linear(50, 50, bias = False)
 
         # aux task loss
         self.aux_linear = torch.nn.Linear(node_dim, node_dim, bias = False)
@@ -294,12 +268,11 @@ class T_Closure(torch.nn.Module):
             edge = edge_index[step]
             weight = edge_weight[step]
             cat = cat_list[step]
-            graph_aux_sample = graph_aux_sample_batch[step]
             for i in range(self.layer_num):
                 # spatial modeling via MVH-GNN
                 node_f, aux_loss = self.GNN_LSTM[i][0](node_f, edge, weight, cat.to(DEVICE))
                 graph_aux_loss += torch.mean(aux_loss)
-            graph_emb, aux_loss = self.graph_pooling(batch_list[step], node_f, graph_aux_sample)
+            graph_emb, aux_loss = self.graph_pooling(batch_list[step], node_f)
             GNN_outputs.append((graph_emb).unsqueeze(0))
 
         spatial_embeddings = torch.cat(GNN_outputs, 0)
@@ -322,11 +295,9 @@ class T_Closure(torch.nn.Module):
             edge = edge_index[step]
             weight = edge_weight[step]
             cat = cat_list[step]
-            graph_aux_sample = graph_aux_sample_batch[step]
             for i in range(self.layer_num):
-                batch_len = list(batch_list[step].bincount())
                 node_f, aux_loss = self.GNN_LSTM[i][0](node_f, edge, weight, cat.to(DEVICE))
-            graph_emb, aux_loss = self.graph_pooling(batch_list[step], node_f, graph_aux_sample)
+            graph_emb, aux_loss = self.graph_pooling(batch_list[step], node_f)
             GNN_outputs.append((graph_emb).unsqueeze(0))
 
         spatial_embeddings = torch.cat(GNN_outputs, 0)
@@ -420,7 +391,7 @@ class T_Closure(torch.nn.Module):
             h = torch.cat([lane_emb, direction_emb, fc_emb, speed_class_emb, park_emb, traj_feature, uv_feature], -1) # N*(node_dim*4+uv_dim)
 
             # caculate the encoder aux loss
-            aux_loss += self.get_aux_task(uv_feature, traj_feature)
+            aux_loss += self.trade*self.get_aux_task(uv_feature, traj_feature)
 
             edge_index_list.append(edge_index)
             edge_weight_list.append(edge_weight)
@@ -458,7 +429,7 @@ class T_Closure(torch.nn.Module):
 
         predict_emb = torch.cat(predict_emb, 0)
         rand_predict_emb = torch.cat(rand_predict_emb, 0)
-        aux_loss += 0.1*self.get_aux_task(predict_emb, rand_predict_emb)
+        aux_loss += self.trade*self.get_aux_task(predict_emb, rand_predict_emb)
         
         predict_emb = F.dropout(predict_emb, p = 0.3, training=self.training) # batch_size*F
 
@@ -471,6 +442,6 @@ class T_Closure(torch.nn.Module):
         # seq task loss
         seq_aux_target_emb = torch.cat(seq_aux_target, 0)
         seq_aux_sample_emb = torch.cat(seq_aux_sample, 0)
-        aux_loss += 0.1*self.get_aux_task(seq_aux_target_emb, seq_aux_sample_emb)
+        aux_loss += self.trade*self.get_aux_task(seq_aux_target_emb, seq_aux_sample_emb)
 
         return y_main, target_main, aux_loss
