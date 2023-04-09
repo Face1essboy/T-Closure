@@ -10,12 +10,21 @@ from sklearn.metrics import precision_recall_curve
 import warnings
 warnings.filterwarnings("ignore")
 
+his_length  = 10
+traffic_flow_length = 10
+traj_length = 50
+layer = 1
+static_hidden = 10
+emb_hidden = 50
+trade = 0.1
+numOfEpoch = 100
+
 def get_f1(p,r):
     return 1.25*(p*r)/(0.25*p+r)
 
 print("loading dataset...")
 result_path = '../data/best_result.pickle'
-dataset = Dataset('../data/sample_data.csv', '../data/sample_data.csv', 10, 50)
+dataset = Dataset('../data/sample_data.csv', '../data/sample_data.csv', his_length, traffic_flow_length, traj_length)
 print("get_train_sets")
 train_dataset, train_ids = dataset.get_train_set()
 print("get_test_set")
@@ -32,16 +41,15 @@ print("Done")
 print("Train num: " + str(len(train_dataset)))
 print("Test num: " + str(len(test_dataset)))
 
-model = T_Closure(150,1,10,1).to(DEVICE)
+model = T_Closure(5*static_hidden+2*emb_hidden,static_hidden,emb_hidden,his_length,layer,trade).to(DEVICE)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 criterion = torch.nn.BCELoss()
 
 f_best = 0
-for epoch in range(101):
+for epoch in range(numOfEpoch):
     print("Epoch" + str(epoch))
     epoch_Loss = 0
     model.train()
-    model.clean()
     for batch in tqdm(train_dataLoader):
         h_classcify, target_classcify, traj_aux_loss = model(batch, 'train')
         Loss = criterion(h_classcify, target_classcify.to(DEVICE))
@@ -57,7 +65,6 @@ for epoch in range(101):
         all_prob = np.array([])
         all_y = np.array([])
         all_target = np.array([])
-        print("eval in test_dataset")
         right_list = []
         fp_list = []
         fn_list = []
@@ -70,6 +77,7 @@ for epoch in range(101):
             all_target = np.append(all_target, target)
 
         if epoch % 5 == 0 and epoch != 0:
+            print("eval in test_dataset")
             precision, recall, thresholds = precision_recall_curve(all_target, all_prob)
             p_np = np.array(precision)
             r_np = np.array(recall)
