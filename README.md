@@ -11,59 +11,48 @@ Paper: "Understanding the Semantics of GPS-based Trajectories for Road Closure D
 
 ## Installation
 
-Install the following packages:
+Clone the repository::
 
 ```
-pip install torch
-pip install numpy
+git clone https://github.com/zjs123/T-Closure.git
 ```
 
-Install CUDA and cudnn. Then run:
+Install the anaconda and create the enviorment via:
 
 ```
-pip install cutorch
-pip install cunn
-pip install cudnn
+conda env create -f freeze.yml
 ```
 
-Then clone the repository::
-
-```
-git clone https://github.com/zjs123/EvoExplore.git
-```
-
-We use Python3 for data processing and our code is also written in Python3. 
+We use Python3.6 for implementation and the CUDA version is 10.1. 
 
 ## Train_and_Test
 
-The user can use the following command to reproduce the reported results of our models, in which the train and the evaluation processes are performed automatically.
+The user can use the following command to train our model in the sampled dataset.
 ```
-python Main.py -dataset ICEWS14
+python3 Main.py
 ```
-Some of the important available options include:
+Some of the important available hyper-parameters include:
 ```
-        '-hidden', default = 100, type = int, help ='dimension of the learned embedding'
-	'-lr',  default = 0.001, type = float, help = 'Learning rate'
-	'-ns', 	 default = 10,   	type=int, 	help='negative samples for training'
-	'-dataset', 	 default = "ICEWS14",   	choice=["ICEWS14","ICEWS05","GDELT"], 	help='dataset used to train'
-	'-numOfEpoch', 	default=300,	type=int	help='Train Epoches'
-   ```
+        '-his_length', default = 10, type = int, help =' max length of traj-plan graph sequence'
+	'-traffic_flow_length',  default = 50, type = int, help = ' max length of traffic flow features for each road'
+	'-traj_length',  default = 50, type = int, help = ' max length of trajectory points of each road'
+	'-layer', default = 1, type = int, help = 'number of layers of MVH-GNN'
+	'-static_hidden', 	 default = 10,   	type=int, 	help='dimension of static features'
+	'-emb_hidden', 	 default = 50,   	type=int, 	help='dimension of GRU encoded features'
+	'trade-off', default = 0.1, type = float, help='trade-off between the main loss and the contrastive loss'
+	'-numOfEpoch', 	default=100,	type=int	help='Train Epoches'
+```
+After training the model, you can easily evalute the performance via:
+```
+python3 Test.py
+```
 
 ## Datasets
 
-There are four datasets used in our experiment:ICEWS14, ICEWS05-15, ICEWS18, and GDELT. facts of each datases are formed as "[subject entity, relation, object entity, time]". Each data folder has four files: 
-
-**-train.txt, test.txt, valid.txt:** the first column is index of subject entity, second column is index of relation, third column is index of object entity, fourth column is the happened time of fact.
-
-**-stat.txt:** num of entites and num of relations
-
-The detailed statistic of each dataset
-| Datasets   | Num of Entity | Num of Relation | Num of Time | Train | Valid | Test |
-|------------|---------------|-----------------|-------------|-------|-------|------|
-| ICEWS14 ([Alberto et al., 2018](https://www.aclweb.org/anthology/D18-1516.pdf))    | 7,128         | 230             | 365         | 72,826| 8,941 | 8,963 |
-| ICEWS05-15 ([Alberto et al., 2018](https://www.aclweb.org/anthology/D18-1516.pdf))  | 10,488        | 251             | 4,071       | 38,6962| 46,275| 46,092|
-| ICEWS18 ([Zhen Han et al., 2020](https://arxiv.org/abs/2012.15537v4))  | 23,033       | 256             | 304       | 373,018| 45,995| 49,545|
-|GDELT ([Goel et al., 2018](https://arxiv.org/pdf/1907.03143.pdf))     | 500           | 20              | 366         | 2,735,685| 341,961| 341,961 |
+We provide the sampled dataset with 100 samples, and the data structure of each sample is
+```
+python3 Test.py
+```
 
 ## Baselines
 
