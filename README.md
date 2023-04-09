@@ -46,24 +46,34 @@ Some of the important available hyper-parameters include:
 ## Datasets
 
 We provide the sampled dataset with 100 samples, and the data structure of each sample is
-```
-python3 Test.py
-```
 
+| Names   | Description                                                                   | Example        | Type      |
+|-------------|---------------------------------------------------------------------------|----------------|-----------|
+| info_id     | The ID of each sample                                                     | 00000000000    | int       |
+| link_id     | The ID of target road                                                     | 00000000000000 | int       |
+| status      | Label of each sample,1 is closure and 0 is not closed                     | 1    | int       |
+| sub_source  | The source code of the sample                                             | 10   | int       |
+| event_t     | Time of discovery of current closure event                                | 11681053604  | int       |
+| exam_st      | Time for the start of manual review                                      | 11681054604  | int       |
+| exam_t      | Time for the end of manual review                                         | 11681056604  | int       |
+| order_info   | The lateset N related trajectories of the target road                    | [order_1, order_2, ...]  | List       |
+| Traj         | The raw trajectory feature of each order in the order_info                [trajectory_sequence_1, trajectory_sequence_2, ...]  | List       |
+| graph_dict   | The k-hop neighbor graph of the target road                              | [Node_set, Node_num, [edge_in, edge_out]]  | List       |
+| online_nei   | The traffic_flow feature of each node in k_hop neighbor graph            | [[uv_now, uv_last_day, uv_last_week], ...]  | List       |
+| static_nei   | The category feature of each node in k_hop neighbor graph                | [[0,1,1,2,1], ...]  | List       |
+|order_2_traj_plan_graph_dict_list | The Traj_plan graph sequence of this sample, and in each Traj_plan graph, its structure is [Node_set, Node_num, [edge_in, edge_out], traffic_flow_feature_for_each_node, traj_feature_for_each_node, static_feature_for_each_node]        | [traj_plan_graph_for_order_1, traj_plan_graph_for_order_2, ...] |List|
 ## Baselines
 
 We use following public codes for baseline experiments. 
 
-| Baselines   | Code                                                                      | Embedding size | Batch num |
-|-------------|---------------------------------------------------------------------------|----------------|------------|
-| TransE ([Bordes et al., 2013](https://papers.nips.cc/paper/5071-translating-embeddings-for-modeling-multi-relational-data))      | [Link](https://github.com/thunlp/OpenKE/tree/OpenKE-PyTorch/openke) | 100, 200       | 100, 200       |
-| TTransE ([Leblay et al., 2018](https://dl.acm.org/doi/fullHtml/10.1145/3184558.3191639))    | [Link](https://github.com/INK-USC/RE-Net/tree/master/baselines)                                  | 50, 100, 200   | 100, 200       |
-| TA-TransE ([Alberto et al., 2018](https://www.aclweb.org/anthology/D18-1516.pdf))      | [Link](https://github.com/INK-USC/RE-Net/tree/master/baselines)     | 100, 200            | Default    |
-| HyTE ([Dasgupta et al., 2018](http://talukdar.net/papers/emnlp2018_HyTE.pdf))        | [Link](https://github.com/malllabiisc/HyTE)                               | Default            | Default    |
-| DE-DistMult ([Goel et al., 2020](https://arxiv.org/pdf/1907.03143.pdf))        | [Link](https://github.com/BorealisAI/de-simple)                               | Default            | Default    |
-| TNTComplEX ([Timothee et al., 2020](https://openreview.net/pdf?id=rke2P1BFwS))        | [Link](https://github.com/facebookresearch/tkbc)                               | Default            | Default    |
-| ATiSE ([Chenjin et al., 2020](https://arxiv.org/pdf/1911.07893.pdf))        | [Link](https://github.com/soledad921/ATISE)                               | Default            | Default    |
+| Baselines   | Paper                                                                      | Code |
+|-------------|---------------------------------------------------------------------------|----------------|
+| ASTGCN      | Attention Based Spatial-Temporal Graph Convolutional Networks for Traffic Flow Forecasting. In AAAI. 922–929.  | implemented in pyG|
+| GMAN      |  GMAN:A Graph Multi-Attention Network for Traffic Prediction. In AAAI. 1234–1241                                 | implemented in pyG|
+| STGODE      |   SpatialTemporal Graph ODE Networks for Traffic Flow Forecasting. In KDD. 364–373.                            | https://github.com/square-coder/STGODE|
+| DSTAGNN      |  DSTAGNN: Dynamic Spatial-Temporal Aware Graph Neural Network for Traffic Flow Forecasting. In ICML. 11906–11917    |https://github.com/SYLan2019/DSTAGNN|
+| TrajGAT |  TrajGAT: A Graph-based Long-term Dependency Modeling Approach for Trajectory Similarity Computation. In KDD. 2275–2285 | https://github.com/HuHaonan-CHN/TrajGAT|
 
 ## Contact
 
-For any questions or suggestions you can use the issues section or contact us at shengyp2011@gmail.com or zjss12358@gmail.com.
+For any questions or suggestions you can use the issues section or contact us at zjss12358@gmail.com.
