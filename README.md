@@ -42,10 +42,6 @@ Some of the important available hyper-parameters include:
 	'trade-off', default = 0.1, type = float, help='trade-off between the main loss and the contrastive loss'
 	'-numOfEpoch', 	default=100,	type=int	help='Train Epoches'
 ```
-After training the model, you can easily evalute the performance via:
-```
-python3 Test.py
-```
 
 ## Datasets
 
