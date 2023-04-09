@@ -11,12 +11,13 @@ import pandas as pd
 from torch_geometric_temporal.signal import StaticGraphTemporalSignal, DynamicGraphTemporalSignal
  
 class Dataset(object):
-    def __init__(self, raw_data_dir, test_dir, his_len, point_sample):
+    def __init__(self, raw_data_dir, test_dir, his_len, traffic_flow_sample, point_sample):
         super(Dataset, self).__init__()
         self.raw_data_dir = raw_data_dir
         self.test_dir = test_dir
         self.his_length = his_len
-        self.point_sample = 50
+        self.traffic_flow_sample = traffic_flow_sample
+        self.point_sample = point_sample
 
         self.train_raw = None
         self.test_raw = None
@@ -81,9 +82,9 @@ class Dataset(object):
         day_uv_np = np.array(day_uv)# traffif flow of the same time in yesterday
         week_uv_np = np.array(week_uv)# traffif flow of the same time in the same day of the last week
 
-        now_uv_last = np.nan_to_num(now_uv_np[-5:])# only use the latest 50 min traffic flow 
-        day_uv_last = np.nan_to_num(day_uv_np[-5:])
-        week_uv_last = np.nan_to_num(week_uv_np[-5:])
+        now_uv_last = np.nan_to_num(now_uv_np[-self.traffic_flow_sample:])# only use the latest 50 min traffic flow 
+        day_uv_last = np.nan_to_num(day_uv_np[-self.traffic_flow_sample:])
+        week_uv_last = np.nan_to_num(week_uv_np[-self.traffic_flow_sample:])
         uv_f = list(now_uv_last)+list(now_uv_last - day_uv_last)+list(now_uv_last - week_uv_last)
 
         return np.array(uv_f)
@@ -219,7 +220,7 @@ class Dataset(object):
                 all_padding.append(padding[node_index])
 
             else:
-                all_cat_uv_f.append([0]*38)
+                all_cat_uv_f.append([0]*(3*self.traffic_flow_sample+8))
                 all_traj_f.append([[0]*self.point_sample, [0]*self.point_sample, [0]*self.point_sample, [0]*self.point_sample, [0]*self.point_sample, [0]*self.point_sample])
                 all_padding.append([1]*self.point_sample)
 
