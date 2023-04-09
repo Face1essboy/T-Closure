@@ -50,7 +50,6 @@ def collate_temporal_signal(
             tmp_list.append(signal_list[batch_index][3][i])
         graph_aux_sample_list.append(tmp_list)
 
-
     all_graphs = [[g for g in iter(signal)] for signal in graph_list]
 
     # create diagonalized torch_geometric.Batch objects by timestep
