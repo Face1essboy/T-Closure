@@ -1,6 +1,7 @@
 import pickle
 import torch
 import numpy as np
+from tqdm import tqdm
 from Dataset import Dataset
 from RecurrentGCN import T_Closure
 from torch_geometric.loader import DataLoader
@@ -13,9 +14,8 @@ def get_f1(p,r):
     return 1.25*(p*r)/(0.25*p+r)
 
 print("loading dataset...")
-result_path = '../Dataset/111320.pickle'
-#dataset = Dataset('../Dataset/test_set_102425_large.csv', None, 10, 50)
-dataset = Dataset('../Dataset/train_set_large.csv', '../Dataset/test_set_111320_large.csv', 10, 50)
+result_path = '../data/best_result.pickle'
+dataset = Dataset('../data/sample_data.csv', '../data/sample_data.csv', 10, 50)
 print("get_train_sets")
 train_dataset, train_ids = dataset.get_train_set()
 print("get_test_set")
@@ -42,9 +42,8 @@ for epoch in range(101):
     epoch_Loss = 0
     model.train()
     model.clean()
-    for batch in train_dataLoader:
+    for batch in tqdm(train_dataLoader):
         h_classcify, target_classcify, traj_aux_loss = model(batch, 'train')
-        #print(h_classcify)
         Loss = criterion(h_classcify, target_classcify.to(DEVICE))
         Loss += traj_aux_loss
         Loss.backward()
@@ -70,7 +69,7 @@ for epoch in range(101):
             all_prob = np.append(all_prob, y)
             all_target = np.append(all_target, target)
 
-        if epoch % 5 == 0:
+        if epoch % 5 == 0 and epoch != 0:
             precision, recall, thresholds = precision_recall_curve(all_target, all_prob)
             p_np = np.array(precision)
             r_np = np.array(recall)
@@ -84,7 +83,7 @@ for epoch in range(101):
             if f_now >= f_best:
                 f_best = f_now
                 pickle.dump([[precision, recall, thresholds], [test_ids, all_prob, all_target]], open(result_path,"wb"))
-                torch.save(model.state_dict(), '111320.pt')
+                torch.save(model.state_dict(), 'best_model.pt')
 
             for i in [0.95, 0.9, 0.8, 0.7]:
                 p_filter = p_np[p_np >=i]
