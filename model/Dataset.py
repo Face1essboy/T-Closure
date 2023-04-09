@@ -25,36 +25,21 @@ class Dataset(object):
         self.label_weights = [1,1,1]
         self.read_raw_data()
 
-    def read_raw_data(self):
-        if 'csv'  not in self.raw_data_dir:
-            f = open(self.raw_data_dir, 'rb')
-            dataset = pickle.load(f, encoding='iso-8859-1')
-        else:
-            dataset = pd.read_csv(self.raw_data_dir)
+    def read_raw_data(self): # read raw csv data
+        train_dataset = pd.read_csv(self.raw_data_dir)
+        test_dataset = pd.read_csv(self.test_dir)
         
-        if self.test_dir == None:
-
-            self.train_raw = dataset.sample(frac=0.7) 
-            self.test_raw = dataset[~dataset.index.isin(self.train_raw.index)]
-            self.train_raw = self.train_raw.reset_index(drop=True)
-            self.test_raw = self.test_raw.reset_index(drop=True)
-        else:
-            if 'csv' not in self.test_dir:
-                test_f = open(self.test_dir, 'rb')
-                test_dataset = pickle.load(test_f, encoding='iso-8859-1')
-            else:
-                test_dataset = pd.read_csv(self.test_dir)
-            self.train_raw = dataset.reset_index(drop=True)
-            self.test_raw = test_dataset.reset_index(drop=True)
+        self.train_raw = train_dataset.reset_index(drop=True)
+        self.test_raw = test_dataset.reset_index(drop=True)
         
         return 0
     
-    def combine_graphs(self, graph_list):
+    def combine_graphs(self, graph_list): # unify the node index for each graph sequence
         link_set = set()
         combined_graph_dict = {}
         sub_dict_list = []
         new_graph_list = []
-        for index in range(len(graph_list)):
+        for index in range(len(graph_list)): # read original node id-index pairs
             sub_graph = graph_list[index]
             
             link_set = link_set | set(sub_graph[0])
@@ -66,16 +51,16 @@ class Dataset(object):
         
         combined_graph_dict[sub_graph[0][0]] = 0
         new_index = 1
-        for link in link_set:
+        for link in link_set: # creat new index
             if link not in combined_graph_dict.keys():
                 combined_graph_dict[link] = new_index
                 new_index += 1
         
         all_nodes = [0]*len(link_set)
-        for link in combined_graph_dict.keys():
+        for link in combined_graph_dict.keys():# creat new id-index dict
             all_nodes[combined_graph_dict[link]] = link
 
-        for index in range(len(graph_list)):
+        for index in range(len(graph_list)):# map the new index to each graph
             sub_graph = graph_list[index]
             nodes = sub_graph[0]
             node_num = sub_graph[1]
@@ -91,27 +76,23 @@ class Dataset(object):
         return new_graph_list, all_nodes
 
 
-    def get_uv_f(self, now_uv, day_uv, week_uv, Type):
-        now_uv_np = np.array(now_uv)
-        day_uv_np = np.array(day_uv)
-        week_uv_np = np.array(week_uv)
+    def get_uv_f(self, now_uv, day_uv, week_uv, Type):# get the traffic flow fatures
+        now_uv_np = np.array(now_uv)# traffif flow of today
+        day_uv_np = np.array(day_uv)# traffif flow of the same time in yesterday
+        week_uv_np = np.array(week_uv)# traffif flow of the same time in the same day of the last week
 
-        now_uv_last_2 = now_uv_np[-2:]
-        day_uv_last_2 = day_uv_np[-2:]
-        week_uv_last_2 = week_uv_np[-2:]
-
-        now_uv_last_5 = np.nan_to_num(now_uv_np[-10:])
-        day_uv_last_5 = np.nan_to_num(day_uv_np[-10:])
-        week_uv_last_5 = np.nan_to_num(week_uv_np[-10:])
-        uv_f = list(now_uv_last_5)+list(now_uv_last_5 - day_uv_last_5)+list(now_uv_last_5 - week_uv_last_5)
+        now_uv_last = np.nan_to_num(now_uv_np[-5:])# only use the latest 50 min traffic flow 
+        day_uv_last = np.nan_to_num(day_uv_np[-5:])
+        week_uv_last = np.nan_to_num(week_uv_np[-5:])
+        uv_f = list(now_uv_last)+list(now_uv_last - day_uv_last)+list(now_uv_last - week_uv_last)
 
         return np.array(uv_f)
 
-    def traj_padding(self, f, type = None):
+    def traj_padding(self, f, type = None):# padding the trajectory point sequence (the number of trajectory points mapped to each road is different. we uniform them as self.point_sample)
         f_list = list(f)
         new_f_list = []
         padding_list = []
-        if len(f_list) < self.point_sample:
+        if len(f_list) < self.point_sample:# for number smaller than self.point_sample, we will pad 0
             if type == None:
                 f_tmp = f_list+[0]*self.point_sample
             else:
@@ -123,7 +104,7 @@ class Dataset(object):
 
             new_f_list = f_tmp[:self.point_sample]
             padding_list = padding_tmp[:self.point_sample]
-        else:
+        else: # for number larger than self.point_sample, we will randomly sample trajecory points with the number of self.point_sample
             if type == None:
                 split_ratio = self.point_sample//5
                 f_pre_list = f_list[:split_ratio]
@@ -143,8 +124,8 @@ class Dataset(object):
             padding_list = [0]*len(new_f_list)
         return np.nan_to_num(new_f_list),padding_list
 
-    def get_graph_feature(self, sub_graph, all_nodes, link_dir, Type): # dim: N*f
-        # get kind raw feature
+    def get_graph_feature(self, sub_graph, all_nodes, link_dir, Type): # get features for each road(node) dim: N*f
+        # get kind raw feature (the category features for each road)
         old_cat_f = np.array([[sub_graph[4][i][0]] for i in range(len(sub_graph[4]))]) # n*1
         cat_f = []
         for i in old_cat_f:
@@ -156,13 +137,11 @@ class Dataset(object):
                 else:
                     cat_f.append([2])
         cat_f = np.array(cat_f)
-        link_ids = sub_graph[0] # n*1
 
         # get static raw feature
         static_f = np.nan_to_num(np.array(sub_graph[6])) # n*static_f
         try:
             link_length = static_f[:,2] # n*1
-            link_direction = static_f[:,1] # n*1
         except:
             print(sub_graph)
             print(static_f)
@@ -188,29 +167,29 @@ class Dataset(object):
             lng.append(self.traj_padding(new_lng)[0])
             lat.append(self.traj_padding(new_lat)[0])
 
-        speed = np.array([self.np_move_avg(np.abs(self.traj_padding(sub_graph[4][i][3])[0])) for i in range(len(sub_graph[4]))])
+        speed = np.array([np.abs(self.traj_padding(sub_graph[4][i][3])[0]) for i in range(len(sub_graph[4]))])
         direction = []
-        for i in range(len(sub_graph[4])):
+        for i in range(len(sub_graph[4])): # read raw direction
             new_direction = []
             raw_direction = sub_graph[4][i][4]
             try:
-                real_direction = raw_direction[0] #float(link_dir[link_ids[i]])
+                real_direction = raw_direction[0]
             except:
                 try:
                     real_direction = raw_direction[0]
                 except:
                     real_direction = 0
-            for j in raw_direction:
+            for j in raw_direction: # conform the raw direction to 360 scope
                 direction_change = abs(j - real_direction)
                 if direction_change > 180:
                     direction_change_ratio = abs(360 - direction_change)
                 else:
                     direction_change_ratio = direction_change
                 new_direction.append(direction_change_ratio)
-            direction.append(self.np_move_avg(np.array(self.traj_padding(new_direction)[0])))
+            direction.append(np.array(self.traj_padding(new_direction)[0]))
         
         order_status = np.array([self.traj_padding(sub_graph[4][i][5])[0] for i in range(len(sub_graph[4]))])
-        dist = np.array([self.traj_padding(sub_graph[4][i][6])[0]/(link_length[i]+1)  for i in range(len(sub_graph[4]))])
+        dist = np.array([self.traj_padding(sub_graph[4][i][6])[0]/(link_length[i]+1)  for i in range(len(sub_graph[4]))])# the pass length of the trajectory on this road
         padding = np.array([self.traj_padding(sub_graph[4][i][1])[1] for i in range(len(sub_graph[4]))]) # n*point_sample
 
         # get uv raw feature
@@ -306,7 +285,7 @@ class Dataset(object):
                     continue
         return sample_list
     
-    def get_traj_graphs(self, sample, Type):
+    def get_traj_graphs(self, sample, Type): # get traj-plan graphs for each sample
         if 'csv'  not in self.raw_data_dir:
             graph_combined, all_node = self.combine_graphs(sample['order_2_traj_plan_graph_dict_list'])
         else:
@@ -333,6 +312,7 @@ class Dataset(object):
         i = 0
         j = 0
 
+        # get graph sequence
         link_dir = None #sample['link_dir']
         if 'csv' not in self.raw_data_dir:
             SAMPLE_Traj = sample['traj']
@@ -391,11 +371,12 @@ class Dataset(object):
                 time_span = float((timestamp - pre_time)/60)
                 seq_span_list.append(time_span)
                 pre_time = timestamp
+            # get graph structure
             edges = np.array([sub_graph[2], sub_graph[3]])
             edge_weight = np.array(sub_graph[-1])
             edge_index_list.append(edges)
             edge_weight_list.append(edge_weight)
-
+            #get graph feature
             uv_cat_f, traj_f, padding = self.get_graph_feature(sub_graph, all_node, link_dir, Type)
             traj_aux_task_sample = self.get_traj_aux_task_sample(raw_traj, all_node, Type)
             graph_aux_task_sample = self.get_graph_aux_task_sample(raw_traj, all_node, Type)
@@ -404,6 +385,7 @@ class Dataset(object):
             traj_f_list.append(traj_f)
             traj_padding.append(padding)
 
+            # get the label
             target = np.array([int(sample['status'])])
             target_list.append(np.array([target]*len(uv_cat_f)))
             order_target_list.append(order_target)
@@ -417,9 +399,11 @@ class Dataset(object):
         target_array = np.array(target_list)
         order_target_array = np.array(order_target_list)
 
+        # construct traj-plan graph sequence
         graph = DynamicGraphTemporalSignal(edge_indices = edge_index_list, edge_weights = edge_weight_list, features = uv_cat_f_array, targets = target_array, traj_f = traj_f_array, traj_padding = traj_padding_array)
         return [graph, seq_padding_index, traj_aux_task_sample_list, graph_aux_task_sample_list, seq_span_list, order_target_array]
 
+    # generat training set
     def get_train_set(self):
         train_set = []
         train_ids = []
@@ -430,6 +414,7 @@ class Dataset(object):
             train_ids.append(row['info_id'])
         return train_set, train_ids
     
+    # generat test set
     def get_test_set(self):
         test_set = []
         test_ids = []
